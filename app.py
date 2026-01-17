@@ -4,24 +4,16 @@ from datetime import datetime
 
 st.set_page_config(page_title="Macro Planner TACO", layout="centered")
 
-# --- ESTILO ---
-st.markdown("""
-    <style>
-    .stMetric { background-color: #ffffff; padding: 10px; border-radius: 10px; border: 1px solid #eee; }
-    </style>
-    """, unsafe_allow_html=True)
-
 # --- CARREGAR DADOS ---
 @st.cache_data
 def carregar_dados():
-    # Carrega com separador ; conforme o seu arquivo
+    # Lê o arquivo com separador ; 
     df = pd.read_csv('taco.csv', sep=';', encoding='utf-8')
     
-    # Limpeza básica: remove espaços e garante nomes consistentes
+    # Limpa nomes de colunas (remove espaços e quebras de linha)
     df.columns = df.columns.str.strip()
     
-    # Mapeamento para facilitar o código (Ajustado para as colunas do seu arquivo)
-    # Colunas esperadas no seu CSV: "Nome do Alimento", "Energia (kcal)", "Proteína (g)", etc.
+    # Mapeamento exato baseado na sua planilha
     df = df.rename(columns={
         'Nome do Alimento': 'nome',
         'Energia (kcal)': 'kcal',
@@ -30,97 +22,104 @@ def carregar_dados():
         'Lipídeos (g)': 'gord'
     })
     
-    # Converte colunas para numérico, tratando erros (vírgula por ponto)
+    # Função para limpar números (troca vírgula por ponto e remove textos)
+    def limpar_valor(valor):
+        if pd.isna(valor) or valor == "" or valor == "-":
+            return 0.0
+        try:
+            # Transforma em string, troca , por . e remove caracteres não numéricos
+            s = str(valor).replace(',', '.').strip()
+            return float(s)
+        except:
+            return 0.0
+
+    # Aplica a limpeza nas colunas de macros
     for col in ['kcal', 'carb', 'prot', 'gord']:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col].toString().replace(',', '.'), errors='coerce').fillna(0)
+            df[col] = df[col].apply(limpar_valor)
             
     return df
 
 try:
     taco = carregar_dados()
 except Exception as e:
-    st.error(f"Erro ao ler taco.csv: {e}")
+    st.error(f"Erro ao processar a planilha: {e}")
     st.stop()
 
 # --- ESTADO DO APP ---
 if 'diario' not in st.session_state:
     st.session_state['diario'] = []
-if 'custom' not in st.session_state:
-    st.session_state['custom'] = pd.DataFrame(columns=['nome', 'kcal', 'carb', 'prot', 'gord'])
 
-# --- INTERFACE ---
 st.title("🍎 Meu Diário de Macros")
 
+# --- INTERFACE ---
 aba1, aba2 = st.tabs(["🍽 Diário", "➕ Alimento Externo"])
 
-# --- ABA 1: DIÁRIO ---
 with aba1:
-    with st.container():
-        busca = st.text_input("Buscar alimento na TACO (ex: Frango, Arroz...)")
-        
-        if busca:
-            sugestoes = taco[taco['nome'].str.contains(busca, case=False, na=False)]
-            if not sugestoes.empty:
-                alimento_sel = st.selectbox("Selecione o item:", sugestoes['nome'].unique())
-                
-                c1, c2 = st.columns(2)
-                gramas = c1.number_input("Quantidade (g)", min_value=1.0, value=100.0, step=10.0)
-                hora = c2.time_input("Horário da refeição")
+    busca = st.text_input("Buscar na TACO (ex: Frango, Arroz...)")
+    
+    if busca:
+        sugestoes = taco[taco['nome'].str.contains(busca, case=False, na=False)]
+        if not sugestoes.empty:
+            alimento_sel = st.selectbox("Selecione o item:", sugestoes['nome'].unique())
+            
+            c1, c2 = st.columns(2)
+            gramas = c1.number_input("Quantidade (g)", min_value=1.0, value=100.0)
+            hora = c2.time_input("Horário")
 
-                if st.button("Adicionar ao Diário"):
-                    # Pega os dados do alimento selecionado
-                    dados = taco[taco['nome'] == alimento_sel].iloc[0]
-                    fator = gramas / 100
-                    
-                    st.session_state['diario'].append({
-                        "Hora": hora.strftime("%H:%M"),
-                        "Alimento": alimento_sel,
-                        "Qtd": f"{gramas}g",
-                        "Kcal": float(dados['kcal']) * fator,
-                        "Carb": float(dados['carb']) * fator,
-                        "Prot": float(dados['prot']) * fator,
-                        "Gord": float(dados['gord']) * fator
-                    })
-                    st.success("Adicionado!")
-                    st.rerun()
-            else:
-                st.warning("Nenhum alimento encontrado com esse nome.")
+            if st.button("Adicionar ao Diário"):
+                dados = taco[taco['nome'] == alimento_sel].iloc[0]
+                fator = gramas / 100
+                
+                st.session_state['diario'].append({
+                    "Hora": hora.strftime("%H:%M"),
+                    "Alimento": alimento_sel,
+                    "Qtd": f"{gramas}g",
+                    "Kcal": float(dados['kcal']) * fator,
+                    "Carb": float(dados['carb']) * fator,
+                    "Prot": float(dados['prot']) * fator,
+                    "Gord": float(dados['gord']) * fator
+                })
+                st.success("Adicionado!")
+                st.rerun()
 
     st.divider()
 
-    # Exibição dos Resultados
     if st.session_state['diario']:
         df_hoje = pd.DataFrame(st.session_state['diario'])
         
-        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-        col_m1.metric("🔥 Kcal", f"{df_hoje['Kcal'].sum():.0f}")
-        col_m2.metric("🍞 Carb", f"{df_hoje['Carb'].sum():.1f}g")
-        col_m3.metric("🍗 Prot", f"{df_hoje['Prot'].sum():.1f}g")
-        col_m4.metric("🥑 Gord", f"{df_hoje['Gord'].sum():.1f}g")
+        # Dashboard Minimalista
+        cols = st.columns(4)
+        metrics = [
+            ("🔥 Kcal", "Kcal", ".0f"),
+            ("🍞 Carb", "Carb", ".1f"),
+            ("🍗 Prot", "Prot", ".1f"),
+            ("🥑 Gord", "Gord", ".1f")
+        ]
         
-        st.table(df_hoje[["Hora", "Alimento", "Qtd", "Kcal"]])
+        for col, (label, key, fmt) in zip(cols, metrics):
+            total = df_hoje[key].sum()
+            col.metric(label, f"{total:{fmt}}")
         
-        if st.button("Limpar Diário"):
+        st.dataframe(df_hoje, use_container_width=True)
+        
+        if st.button("Limpar Tudo"):
             st.session_state['diario'] = []
             st.rerun()
 
-# --- ABA 2: ADICIONAR FORA DA TACO ---
 with aba2:
-    st.subheader("Alimento que não está na lista")
-    with st.form("add_custom"):
-        nome_c = st.text_input("Nome do Alimento")
-        col_a, col_b, col_c, col_d = st.columns(4)
-        kc = col_a.number_input("Kcal (100g)")
-        ca = col_b.number_input("Carb (100g)")
-        pr = col_c.number_input("Prot (100g)")
-        go = col_d.number_input("Gord (100g)")
-        
-        if st.form_submit_button("Salvar e Adicionar"):
+    st.subheader("Cadastrar Manual")
+    with st.form("manual"):
+        n = st.text_input("Nome")
+        c1, c2, c3, c4 = st.columns(4)
+        kcal = c1.number_input("Kcal")
+        carb = c2.number_input("Carb")
+        prot = c3.number_input("Prot")
+        gord = c4.number_input("Gord")
+        if st.form_submit_button("Adicionar"):
             st.session_state['diario'].append({
                 "Hora": datetime.now().strftime("%H:%M"),
-                "Alimento": nome_c,
-                "Qtd": "100g",
-                "Kcal": kc, "Carb": ca, "Prot": pr, "Gord": go
+                "Alimento": n, "Qtd": "Personalizado",
+                "Kcal": kcal, "Carb": carb, "Prot": prot, "Gord": gord
             })
-            st.success("Alimento personalizado adicionado ao diário!")
+            st.rerun()
