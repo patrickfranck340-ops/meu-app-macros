@@ -1,73 +1,74 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 
-# Configuração da Página
-st.set_page_config(page_title="Macro Minimal", page_icon="🥗", layout="centered")
+st.set_page_config(page_title="Macro Planner TACO", layout="centered")
 
-# --- ESTILO CSS PARA MINIMALISMO ---
-st.markdown("""
-    <style>
-    .main { background-color: #f8f9fa; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    </style>
-    """, unsafe_allow_html=True)
+# --- CARREGAR DADOS ---
+@st.cache_data
+def carregar_dados():
+    # Lê o arquivo que você subiu no GitHub
+    df = pd.read_csv('taco.csv')
+    # Garante que os nomes das colunas estejam limpos
+    df.columns = df.columns.str.lower()
+    return df
 
-# --- INICIALIZAÇÃO DE DADOS ---
+try:
+    taco = carregar_dados()
+except:
+    st.error("Erro ao ler taco.csv. Verifique se o arquivo tem as colunas: nome, kcal, carb, prot, gord")
+    st.stop()
+
+# --- ESTADO DO APP ---
 if 'diario' not in st.session_state:
     st.session_state['diario'] = []
-if 'custom_alimentos' not in st.session_state:
-    st.session_state['custom_alimentos'] = pd.DataFrame(columns=['nome', 'kcal', 'carb', 'prot', 'gord'])
 
-# --- TELA PRINCIPAL ---
-st.title("🥗 Macro Planner")
+st.title("🍎 Diário de Macros (TACO)")
 
-aba = st.sidebar.radio("Navegação", ["Diário", "Adicionar Alimento", "Configurações"])
-
-if aba == "Diário":
-    st.subheader("Refeições de Hoje")
+# --- ABA DE ADIÇÃO ---
+with st.expander("➕ Adicionar Alimento da TACO", expanded=True):
+    # Busca por texto na tabela
+    busca = st.text_input("Buscar alimento (ex: Arroz, Frango...)")
     
-    # Form para adicionar refeição
-    with st.expander("➕ Registrar Alimento"):
+    if busca:
+        sugestoes = taco[taco['nome'].str.contains(busca, case=False, na=False)]
+        alimento_sel = st.selectbox("Selecione o item exato:", sugestoes['nome'])
+        
         col1, col2 = st.columns(2)
-        hora = col1.time_input("Horário")
-        nome = col2.text_input("Alimento")
-        
-        c1, c2, c3, c4 = st.columns(4)
-        kcal = c1.number_input("Kcal", min_value=0.0)
-        carb = c2.number_input("Carb (g)", min_value=0.0)
-        prot = c3.number_input("Prot (g)", min_value=0.0)
-        gord = c4.number_input("Gord (g)", min_value=0.0)
-        
-        if st.button("Salvar no Diário"):
+        gramas = col1.number_input("Quantidade (g)", min_value=1, value=100)
+        hora = col2.time_input("Horário")
+
+        if st.button("Adicionar ao Diário"):
+            dados_item = taco[taco['nome'] == alimento_sel].iloc[0]
+            fator = gramas / 100
+            
             st.session_state['diario'].append({
-                "Horário": hora.strftime("%H:%M"),
-                "Alimento": nome,
-                "Kcal": kcal,
-                "Carb": carb,
-                "Prot": prot,
-                "Gord": gord
+                "Hora": hora.strftime("%H:%M"),
+                "Alimento": alimento_sel,
+                "Qtd": gramas,
+                "Kcal": dados_item['kcal'] * fator,
+                "Carb": dados_item['carb'] * fator,
+                "Prot": dados_item['prot'] * fator,
+                "Gord": dados_item['gord'] * fator
             })
-            st.rerun()
+            st.success("Adicionado com sucesso!")
 
-    # Exibição dos Totais
-    if st.session_state['diario']:
-        df = pd.DataFrame(st.session_state['diario'])
-        
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total Kcal", f"{df['Kcal'].sum():.0f}")
-        m2.metric("Carbs", f"{df['Carb'].sum():.1f}g")
-        m3.metric("Prot", f"{df['Prot'].sum():.1f}g")
-        m4.metric("Gord", f"{df['Gord'].sum():.1f}g")
-        
-        st.divider()
-        st.dataframe(df, use_container_width=True)
-        if st.button("Limpar Diário"):
-            st.session_state['diario'] = []
-            st.rerun()
-    else:
-        st.info("Nenhum alimento registrado hoje.")
-
-elif aba == "Adicionar Alimento":
-    st.subheader("Cadastrar Novo Alimento (Base Pessoal)")
-    # Aqui você pode expandir para ler o CSV da TACO
-    st.write("Em breve: Integração direta com busca na TACO.")
+# --- EXIBIÇÃO ---
+if st.session_state['diario']:
+    df_hoje = pd.DataFrame(st.session_state['diario'])
+    
+    # Métricas de resumo
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Kcal", f"{df_hoje['Kcal'].sum():.0f}")
+    c2.metric("Carb", f"{df_hoje['Carb'].sum():.1f}g")
+    c3.metric("Prot", f"{df_hoje['Prot'].sum():.1f}g")
+    c4.metric("Gord", f"{df_hoje['Gord'].sum():.1f}g")
+    
+    st.divider()
+    st.dataframe(df_hoje, use_container_width=True)
+    
+    if st.button("Limpar Diário"):
+        st.session_state['diario'] = []
+        st.rerun()
+else:
+    st.info("Sua lista de hoje está vazia.")
